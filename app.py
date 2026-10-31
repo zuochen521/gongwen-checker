@@ -2,6 +2,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, scrolledtext, ttk
 from pathlib import Path
 import zipfile, xml.etree.ElementTree as ET, re, copy
+import threading
+import qwen_local
 
 W='http://schemas.openxmlformats.org/wordprocessingml/2006/main'
 ET.register_namespace('w', W)
@@ -85,6 +87,7 @@ class App:
         self.label=tk.Label(row,text='尚未选择文件（支持 .docx）',font=('Microsoft YaHei UI',10),fg='#65758b',bg='white',anchor='w'); self.label.pack(side='left',fill='x',expand=True,padx=15)
         actions=tk.Frame(body,bg='#f2f5f9'); actions.pack(fill='x',pady=16)
         ttk.Button(actions,text='开始审核',style='Primary.TButton',command=self.audit).pack(side='left')
+        ttk.Button(actions,text='本地模型辅助审核',style='Secondary.TButton',command=self.ai_review).pack(side='left',padx=2)
         ttk.Button(actions,text='生成调整后的副本',style='Secondary.TButton',command=self.fix).pack(side='left',padx=10)
         self.status=tk.Label(actions,text='等待选择文件',font=('Microsoft YaHei UI',9),fg='#718197',bg='#f2f5f9'); self.status.pack(side='right')
         results=tk.Frame(body,bg='white',padx=22,pady=18); results.pack(fill='both',expand=True)
@@ -111,9 +114,28 @@ class App:
             else: self.status.config(text='审核完成')
         except Exception as e:
             self.status.config(text='处理失败'); messagebox.showerror('处理失败',str(e))
+    def ai_review(self):
+        if not self.path:
+            messagebox.showinfo('提示','请先选择 Word 文件'); return
+        path=self.path
+        self.status.config(text='本地模型审核中，请稍候…')
+        def worker():
+            try:
+                result=qwen_local.review(path)
+                self.root.after(0, lambda: self.show_ai(result))
+            except Exception as exc:
+                msg=str(exc)
+                self.root.after(0, lambda: self.ai_error(msg))
+        threading.Thread(target=worker,daemon=True).start()
+    def show_ai(self,result):
+        self.out.delete('1.0','end')
+        self.out.insert('end','本地模型辅助审核（仅供人工参考，不会自动修改文件）\n\n'+result)
+        self.status.config(text='模型审核完成')
+    def ai_error(self,msg):
+        self.status.config(text='模型审核失败')
+        messagebox.showerror('本地模型不可用','请确认本机 Ollama 正在运行且已安装 qwen2.5:1.5b。\n\n'+msg)
     def audit(self): self.run(False)
     def fix(self): self.run(True)
 if __name__=='__main__':
     root=tk.Tk(); App(root); root.mainloop()
-
 
